@@ -1,0 +1,300 @@
+---
+title: "Practical Machine Learning"
+author: "Susan Lively Klug"
+date: "November 21, 2015"
+output: html_document
+---
+
+## Coursera Fall 2015
+
+## Fitness Sensors used to predict correctness of exercise
+
+Original Data location: http://groupware.les.inf.puc-rio.br/har
+
+Cited publication: 
+
+Ugulino, W.; Cardador, D.; Vega, K.; Velloso, E.; Milidiu, R.; Fuks, H. Wearable Computing: Accelerometers' Data Classification of Body Postures and Movements. Proceedings of 21st Brazilian Symposium on Artificial Intelligence. Advances in Artificial Intelligence - SBIA 2012. In: Lecture Notes in Computer Science. , pp. 52-61. Curitiba, PR: Springer Berlin / Heidelberg, 2012. ISBN 978-3-642-34458-9. DOI: 10.1007/978-3-642-34459-6_6.
+
+Read more: http://groupware.les.inf.puc-rio.br/har#ixzz3qddz6wKj
+
+### To understand the data provided in training and testing data sets we quote from the source website:
+
+"Six young health participants were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+Class A corresponds to the specified execution of the exercise, while the other 4 classes correspond to common mistakes. Participants were supervised by an experienced weight lifter to make sure the execution complied to the manner they were supposed to simulate. The exercises were performed by six male participants aged between 20-28 years, with little weight lifting experience. We made sure that all participants could easily simulate the mistakes in a safe and controlled manner by using a relatively light dumbbell (1.25kg)."
+
+## This course Project Goal
+
+The goal of this project is to predict the manner in which the participant did the exercise. This is the "classe" variable in the training set. You may use any of the other variables to predict with. You should create a report describing how you built your model, how you used cross validation, what you think the expected out of sample error is, and why you made the choices you did. You will also use your prediction model to predict 20 different test cases. 
+
+1. Your submission should consist of a link to a Github repo with your R markdown and compiled HTML file describing your analysis. Please constrain the text of the writeup to < 2000 words and the number of figures to be less than 5. It will make it easier for the graders if you submit a repo with a gh-pages branch so the HTML page can be viewed online (and you always want to make it easy on graders :-).
+
+2. You should also apply your machine learning algorithm to the 20 test cases available in the test data above. Please submit your predictions in appropriate format to the programming assignment for automated grading. See the programming assignment for additional details. 
+
+## Setup 
+
+```{r libraries}
+library(dplyr); library(AppliedPredictiveModeling); library(caret); library(rattle); library(rpart); library(rpart.plot); library(caTools)
+```
+
+## Explore
+
+Data is downloaded from the provided website and read in with the na.strings variable taking into account divide by zero fields as well as blank fields.  Summaries and comparisons are made which show the differences in columns.
+
+```{r explore}
+setwd("F:/Documents/R/Machine_Learning/project")
+#
+# get the training data set
+#
+trainUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"
+train_fn <- "./pml-training.csv"
+if (!file.exists(train_fn)){
+     download.file(trainUrl, destfile = train_fn, method="curl")
+}
+training_har <- read.csv("./pml-training.csv", na.strings=c("NA", "#DIV/0!", ""))
+#
+# get the testing data set
+#
+testUrl <- "http://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"
+test_fn <- "./pml-testing.csv"
+if (!file.exists(test_fn)) {
+     download.file(testUrl, destfile = test_fn, method="curl")
+}     
+testing_har <- read.csv("./pml-testing.csv", na.strings=c("NA", "#DIV/0!", ""))
+#
+# commented out for brevity of reporting, but provided exploratory information
+# during report generation
+# summary(training_har)
+# head(training_har)
+#
+train_names <- names(training_har)
+test_names <- names(testing_har)
+intersect_names <- intersect(names(training_har), names(testing_har))
+print(intersect_names)
+#
+# can tell by visual inspection that these names overlap except for the very last
+# variable which is classe in training and problem_id in testing.
+#
+```
+
+Data falls into categories: belt, dumbell, forearm, and arm.
+
+These variables add up to a correct or incorrect performance of barbell lifts (5 ways, A-E)
+
+classe == A : Correct way to perform the barbell lift.  
+
+## Clean up, clean up, everybody, everywhere
+
+To clean the data - remove unwanted columns, deal with the NANs, NAs, and #DIV/0!s,
+separate the given data into a training and testing data set so that we can judge our chosen model.
+
+```{r clean}
+#
+# remove the first seven columns - not using them at all.
+# remember : data[row,column]
+#
+clean_train <- training_har[,-(1:7)]
+#
+# Before using the getFractionMissing fuction let's try to just use nearZeroVar
+# to seek out near zero variance data (data that hardly changes need not slow down our training)
+#
+nzv_index <- nearZeroVar(clean_train, saveMetrics=FALSE, freqCut=70/30)
+allnames <- names(clean_train)
+#
+# select the columns where index != nzv_index
+#
+newnames <- allnames[-nzv_index]
+clean_train <- clean_train[newnames]
+#
+# This removes a good portion of the non-influential data, but not enough.
+#
+# use the function getFractionMissing to clean out the data with 97% NAs.
+# used visual inspection of percentMissingDF to pick the ranges of columns to ignore.
+#
+##   function by Michael Szczepaniak  (many thanks!)
+## Creates a data frame with three columns: index, ColumnName and
+## FractionMissing.
+## index is the column index in df corresponding to ColumnName
+## ColumnName is as the name implies: the name the column in df
+## FractionMissing is the fraction of values that are missing or NA.
+## The closer this value is to 1, the less data the column contains
+getFractionMissing <- function(df = rawActitivity) {
+    colCount <- ncol(df)
+    returnDf <- data.frame(index=1:ncol(df),
+                           columnName=rep("undefined", colCount),
+                           FractionMissing=rep(-1, colCount),
+                           stringsAsFactors=FALSE)
+    for(i in 1:colCount) {
+        colVector <- df[,i]
+        missingCount <- length(which(colVector == "") * 1)
+        missingCount <- missingCount + sum(is.na(colVector) * 1)
+        returnDf$columnName[i] <- as.character(names(df)[i])
+        returnDf$FractionMissing[i] <- missingCount / length(colVector)
+    }
+
+    return(returnDf)
+}
+
+percentMissingDF <- getFractionMissing(clean_train)
+print(percentMissingDF)
+```
+
+It turns out that by visual inspection of the test data set, you can see
+that there are many variables that are completely unused and therefore are
+not needed in the training model.  This will greatly increase the run speed
+of our machine learning.
+
+```{r clean hack}     
+# 
+# There should be a better way to code this, but hacked for now.
+#
+maxclean <- clean_train[-(86:91)]
+maxclean <- maxclean[-(71:73)]
+maxclean <- maxclean[-(60:69)]
+maxclean <- maxclean[-(48:56)]
+maxclean <- maxclean[-(5:25)]
+#
+# Perform final cleanup and setting clean_train to the set we wish to use.
+#
+clean_train <- maxclean
+#
+# clean the testing data in the same way.
+# 
+# except it has one extra column at the end "problem_id"
+# need problem_id for final submission
+# 
+clean_test <- testing_har[,-(1:7)]
+newnames[102] <- "problem_id" # need to put problem_id in the list instead of classe
+clean_test <- clean_test[newnames]
+clean_test <- clean_test[-(86:91)]
+clean_test <- clean_test[-(71:73)]
+clean_test <- clean_test[-(60:69)]
+clean_test <- clean_test[-(48:56)]
+FinalTesting <- clean_test[-(5:25)]
+#
+# get rid of extra memory hogs before training the model
+rm(maxclean, clean_test, allnames, newnames, nzv_index)
+```
+
+## Split the cleaned data into training, testing, and validation data sets
+
+This partitioning gives us a measure of cross validation before we run the
+model on the final testing data set.  Training on 60% of the data and then
+using %20 for testing.  Once a model is chosen run that on the final %20 of
+the data as a validation.  Then it is ready to run it on the final testing
+set and generate the results.
+
+```{r partition}
+set.seed(1337)
+#
+# partition into train, test, validation
+#
+inPart <- createDataPartition(y = clean_train$classe, p=0.6, list = FALSE)
+training <- clean_train[inPart,]
+temp <- clean_train[-inPart,]
+
+inPart <- createDataPartition(y = temp$classe, p=0.5, list = FALSE)
+internalTesting <- temp[inPart,]
+validation <- temp[-inPart,]
+
+rm(temp)
+dim(training); dim(internalTesting); dim(validation)
+```
+
+## Fit our model
+
+The Random Forest and Decision Tree models have been chosen.
+
+```{r machine_learn_random_forest, cache=TRUE}
+#
+# fit a model (random forest) to training data
+#
+RFmodel_fn <- "ModFit1.rda"
+if( file.exists(RFmodel_fn) ){
+     print("...found existing model, saving you some time...")
+     load(RFmodel_fn)
+     print("...model loaded...")
+} else {     
+     print("...off to model training, go get a cuppa coffee...")
+     modFit1 <- train(classe ~ ., method="rf", data=training)
+     # save the model due to long run time 
+     save(modFit1, file = RFmodel_fn)
+     print("...welcome back your model has been saved for future sessions...")
+}
+# modFit1
+# modFit1$finalModel
+```
+
+```{r machine_learn_decision_tree, cache=TRUE}
+#
+# fit a different model (decision tree)
+#
+DTmodel_fn <- "ModFit2.rda"
+if( file.exists(DTmodel_fn) ){
+     print("...found existing model, saving you some time...")
+     load(DTmodel_fn)
+     print("...model loaded...")
+} else {     
+     print("...off to model training, go get a cuppa coffee...")
+     modFit2 <- train(classe ~ ., method="rpart", data=training)
+     # save the model due to long run time 
+     save(modFit2, file = DTmodel_fn)
+     print("...welcome back your model has been saved for future sessions...")
+}
+# modFit2
+# modFit2$finalModel
+```
+
+## Predicting and comparing
+
+Chose to do a random forest and a decision tree comparison.  The results below show
+that the random forest model has a better accuracy.  The accuracy for the Random Forest method is %99 so I would expect out of sample errors to be around %1.
+
+```{r predict}
+#
+# random forest
+#
+predRF <- predict(modFit1, internalTesting)
+internalTesting$predRF <- predRF==internalTesting$classe
+# provides shorter information but I want to see confusionMatrix
+# RFtab <- table(predRF, internalTesting$classe)
+# print(RFtab)
+confusionMatrix(predRF, internalTesting$classe)
+#
+# decision tree
+#
+predDT <- predict(modFit2, internalTesting)
+internalTesting$predDT <- predDT==internalTesting$classe
+# provides shorter information but I want to see confusionMatrix
+# DTtab <- table(predDT, internalTesting$classe)
+# print(DTtab)
+confusionMatrix(predDT, internalTesting$classe)
+#
+# since random forest has been chosen, it's probably good to also perform
+# the test on the validation set, just to get one more point of comparison
+# on the accuracy
+#
+predvRF <- predict(modFit1, validation)
+validation$predvRF <- predvRF==validation$classe
+# provides shorter information but I want to see confusionMatrix
+# vRFtab <- table(predvRF, validation$classe)
+# print(vRFtab)
+confusionMatrix(predvRF, validation$classe)
+
+```
+
+## Submission Files generation
+
+```{r submission}
+predRF <- predict(modFit1, FinalTesting)
+
+pml_write_files = function(x){
+  n = length(x)
+  for(i in 1:n){
+    filename = paste0("problem_id_",i,".txt")
+    write.table(x[i],file=filename,quote=FALSE,row.names=FALSE,col.names=FALSE)
+  }
+}
+
+pml_write_files(predRF)
+```

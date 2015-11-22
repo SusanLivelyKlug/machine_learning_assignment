@@ -1,2 +1,4 @@
 # machine_learning_assignment
-coursera
+Coursera Machine Learning Project.
+
+Fitness tracker correctness analysis
