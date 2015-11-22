@@ -418,6 +418,7 @@ rm(maxclean, clean_test, allnames, newnames, nzv_index)</code></pre>
 </div>
 <div id="split-the-cleaned-data-into-training-testing-and-validation-data-sets" class="section level2">
 <h2>Split the cleaned data into training, testing, and validation data sets</h2>
+<p>This partitioning gives us a measure of cross validation before we run the model on the final testing data set. Training on 60% of the data and then using %20 for testing. Once a model is chosen run that on the final %20 of the data as a validation. Then it is ready to run it on the final testing set and generate the results.</p>
 <pre class="r"><code>set.seed(1337)
 #
 # partition into train, test, validation
@@ -438,6 +439,7 @@ dim(training); dim(internalTesting); dim(validation)</code></pre>
 </div>
 <div id="fit-our-model" class="section level2">
 <h2>Fit our model</h2>
+<p>The Random Forest and Decision Tree models have been chosen.</p>
 <pre class="r"><code>#
 # fit a model (random forest) to training data
 #
@@ -479,7 +481,7 @@ if( file.exists(DTmodel_fn) ){
 </div>
 <div id="predicting-and-comparing" class="section level2">
 <h2>Predicting and comparing</h2>
-<p>Chose to do a random forest and a decision tree comparison. The results below show that the random forest model has a better result.</p>
+<p>Chose to do a random forest and a decision tree comparison. The results below show that the random forest model has a better accuracy. The accuracy for the Random Forest method is %99 so I would expect out of sample errors to be around %1.</p>
 <pre class="r"><code>#
 # random forest
 #
@@ -494,16 +496,10 @@ predRF &lt;- predict(modFit1, internalTesting)</code></pre>
 ## 
 ##     combine</code></pre>
 <pre class="r"><code>internalTesting$predRF &lt;- predRF==internalTesting$classe
-RFtab &lt;- table(predRF, internalTesting$classe)
-print(RFtab)</code></pre>
-<pre><code>##       
-## predRF    A    B    C    D    E
-##      A 1116    1    0    0    0
-##      B    0  758    3    0    0
-##      C    0    0  681    7    0
-##      D    0    0    0  636    1
-##      E    0    0    0    0  720</code></pre>
-<pre class="r"><code>confusionMatrix(predRF, internalTesting$classe)</code></pre>
+# provides shorter information but I want to see confusionMatrix
+# RFtab &lt;- table(predRF, internalTesting$classe)
+# print(RFtab)
+confusionMatrix(predRF, internalTesting$classe)</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
@@ -540,16 +536,10 @@ print(RFtab)</code></pre>
 #
 predDT &lt;- predict(modFit2, internalTesting)
 internalTesting$predDT &lt;- predDT==internalTesting$classe
-DTtab &lt;- table(predDT, internalTesting$classe)
-print(DTtab)</code></pre>
-<pre><code>##       
-## predDT    A    B    C    D    E
-##      A 1019  295  310  290   99
-##      B   15  270   23  107   85
-##      C   76  194  351  246  205
-##      D    0    0    0    0    0
-##      E    6    0    0    0  332</code></pre>
-<pre class="r"><code>confusionMatrix(predDT, internalTesting$classe)</code></pre>
+# provides shorter information but I want to see confusionMatrix
+# DTtab &lt;- table(predDT, internalTesting$classe)
+# print(DTtab)
+confusionMatrix(predDT, internalTesting$classe)</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
@@ -588,16 +578,10 @@ print(DTtab)</code></pre>
 #
 predvRF &lt;- predict(modFit1, validation)
 validation$predvRF &lt;- predvRF==validation$classe
-vRFtab &lt;- table(predvRF, validation$classe)
-print(vRFtab)</code></pre>
-<pre><code>##        
-## predvRF    A    B    C    D    E
-##       A 1115    3    0    0    0
-##       B    0  755    4    0    0
-##       C    1    1  680    5    0
-##       D    0    0    0  638    1
-##       E    0    0    0    0  720</code></pre>
-<pre class="r"><code>confusionMatrix(predvRF, validation$classe)</code></pre>
+# provides shorter information but I want to see confusionMatrix
+# vRFtab &lt;- table(predvRF, validation$classe)
+# print(vRFtab)
+confusionMatrix(predvRF, validation$classe)</code></pre>
 <pre><code>## Confusion Matrix and Statistics
 ## 
 ##           Reference
